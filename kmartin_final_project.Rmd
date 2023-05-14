@@ -1,0 +1,74 @@
+---
+title: "DATA 607 - Final Project"
+author: "Kory Martin"
+date: "2023-05-06"
+output: 
+  html_document:
+    toc: true
+---
+### Introduction
+
+The goal of this project is to build a classification tool that can be used by a Data Science job seeker to evaluate their fit for a Data Science job posting. This tool will take in a binary list of qualifications provided by the user and then determine if they are a good fit for a job posting that they provide. 
+
+Methodology:
+1. Create corpus of job postings to develop a listing of top job skills needed for Data Scientist
+2. Use this list to develop a ranking of the top jobs
+3. User will input a list of job skills that they have associated with the job postings
+4. User will provide a job posting that they are interested in
+5. Program will compare the job skills required in the job postings to the job skills that the applicant has
+6. Program will provide a score to the applicant determining how qualified they are for the job
+
+Miscellaneous:
+- I want to be able to ultimately host this as a web application.
+- Incorporate text analysis skills for this
+
+Datasources:
+- Web scraped job postings (Different job boards; scrape 150 job postings)
+- Incorporate different lists that outline the skills for Data Scientists and use this to create the terms that are associated with a Data Science role
+- Store the data in a database (experiment with different types of data stores)
+
+
+### 1. Setup
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### 2. Create Corpus of Job Skills
+
+For this portion the goal is to create a list of job skills along with their ranking of importance for a Data Scientist. This will be done by scraping a number of Data Science job postings and building a corpus of the skills required for a Data Scientist to have and then using this information to generate a score/rank for the various skills that can be used to determine their level of importance.
+
+Methodology:
+1. Collect a list of Data Science job postings
+2. Scrape the postings to extract the job skills information
+3. Create a corpous of the skills listed in each of the postings
+4. Determine which skills are consistent across the various postings to determine and generate an importance score based on the number of postings that the scores appear in
+5. Use this to create a final list of job skills and their importance score
+
+
+### 3. Evaluate a new job posting
+
+Next we will take in a new job posting and review the information from the posting to determine the skills that are important to that posting. This will be done by scraping the posting and extracting the relevant job skills information
+
+Methodology:
+1. Build a scraper that can read the job posting and can extract the core skills from the posting
+2. Use the corpus to rank order the job skills
+
+
+### 4. Collect Input from User on their skills
+
+Next we will allow the applicant to rank their own personal skills based on the lists of skills that are iportant for a Data Scientist to have. 
+
+Methodology:
+1. Applicant will be presented with a list of the job skills important for a Data Scientist and can determine if they have those skills and the level of their competence in those areas (Beginner, Intermediate, Advanced)
+
+
+### 5. Compare job postings skills and Applicant skills to determine job-fit score
+
+Next we will compare the job skills provided by the applicant with the job skills required for the job to determine a job-fit score and use this to determine if the job is a good fit for the applicant.
+
+Methodology:
+1. Develop a scoring methodology for calculating job fit
+
+### 6. Output results to applicant
+
+Finally, we will display the outcome of the job-fit analaysis to the applicant. We will show the fit score as well as the top areas of fit and the areas that the applicant is deficient. And then we will display whether or not the applicant should apply for the role

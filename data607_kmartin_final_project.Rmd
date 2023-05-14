@@ -1,0 +1,571 @@
+---
+title: "DATA 607 - Data Science Job Requirements Unsupervised and Supervised Classification Tool"
+author: "Kory Martin"
+date: "2023-05-06"
+output: 
+  html_document:
+    toc: true
+---
+# 1. Introduction
+
+## a. Overview:
+This project focused on extending the work completed in Project 3, where we set out to identify the top skills required for a Data Scientist. In that project, we used over 100+ postings that we collected across several job boards, and extracted the words from the various postings to generate a word count of the most common Data Science related terms, and used this as a basis for answering the question.
+
+For this project, I shifted my focus slightly to determine if I could take the same corpus of data, and:
+a) build an unsupervised model that can take the unlabeled job postings and identify common groups amongst the data based on the skills listed in the posting;
+b) using the identified clusters to provide labels for the data that can then be used to build a classifier that takes in new data and classifies the job requirement skill. 
+
+Objective:
+Overall, the objective of this project and the research question was "Can I build a classifier that can be used to predict the type of job skills for a new job posting with > 80% accuracy?"
+
+Motivation:
+There are several different motivations for doing this project:
+
+1. To continue to build upon and expand upon my Machine Learning skills
+2. To build upon previous work, and extend the functionality of the data
+3. I envision this work being further extended, by adding a front-end interface that will allow myself or another individual to feed in a Data Science job posting and then do a skills match with their own skills and the skills requested by the company. This will ultimately allow the individual to determine if they are a good match for the position based on their skills
+4. Finally, I desire to be able to apply these same concepts and principles to solving different types of problems. 
+
+
+Methodology:
+1. Import corpus of job requirements created in Project 3
+2. Pre-process the data in order to generate a list of core words found in the data
+3. Create a features array that is based on the tf-idf values for each document (i.e. row of job requirements data)
+4. Use this features array in a KMeans model to identify clusters within the data
+5. Examine these clusters and label the data based on these clusters
+6. Using the newly labeled data, build a classifier that is trained on 70% of the data
+7. Evaluate the performance of the classifier on the test data
+
+
+Datasources:
+- In building the original data source, we used data imported from CSV files as well as web-data
+- Additionally, once the data was collected, we ingested it into a postgres data
+- For this project, we imported the data from a CSV file
+
+
+# 2. Setup
+
+For this project, I used the following libraries:
+
+1. tidyverse
+2. janitor
+3. tidytext
+4. stopwords
+5. tm
+6. class
+7. kableExtra
+
+## a. Import libraries
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(janitor)
+library(tidytext)
+library(stopwords)
+library(tm)
+library(class)
+library(kableExtra)
+library(wordcloud)
+```
+
+
+# 3. Develop List of words
+
+In this step, we begin by importing the job skills data that we collected in Project 3, and then conducting a number of pre-processing steps in order to build our word features array that we will use in our clustering algorithm.
+
+This process is divided into the following steps:
+
+
+1. Import data science job data collected in Project 3
+2. Break each job posting into discrete sets of job skills requirements using a number of pre-processing steps
+3. Import standard english stopwords and build custom stop words based on domain knowledge and common job posting words that don't add value to the data
+4. Create modified version of the job skills info that removes stop-words, and special characters, and modifies the words based on stemming
+5. Create a unique corpus of terms based on a n-grams of 1-3 words
+6. Create a feature vector for the terms in the distinct words list
+
+
+## a. Import Job Postings
+
+```{r}
+
+##KORY - STORE THIS IN THE PROJECT FOLDER AND UPLOAD TO GITHUB
+
+path = './Job Postings Data.csv'
+
+job_postings_raw <- read_csv(path)
+job_postings_raw <- clean_names(job_postings_raw)
+
+
+```
+
+
+## b. Create individual job requirements documents
+
+In some instances, the underlying data has job requirements that include multiple independent requirements. The goal of this step is to further atomize the data to create a single entry for an independent job requirement item.
+
+
+```{r}
+
+job_postings_simple <- job_postings_raw %>%
+  select(job_board, position_title, skills)
+
+cols = c("job_board", "position_title", "skill")
+job_skills_df = data.frame(matrix(nrow=0, ncol=length(cols)))
+colnames(job_skills_df) = cols
+
+row_index = 1
+
+job_postings_simple <- 
+  job_postings_simple %>% 
+  drop_na()
+
+for(i in 1:nrow(job_postings_simple)) {
+  job_board <- job_postings_simple[i,]$job_board
+  position_title <- job_postings_simple[i,]$position_title
+  skills <- job_postings_simple[i,]$skills
+  skills_list <- str_split_1(skills,regex("\\s\\s|\\n|;|\\.|\\,"))
+  
+  
+  for(j in 1:length(skills_list)) {
+    
+    job_skills_df[row_index,]$job_board <- job_board
+    job_skills_df[row_index,]$position_title <- position_title
+    job_skills_df[row_index,]$skill <- skills_list[j]
+      
+    row_index <- row_index + 1  
+    }
+  
+}
+
+job_skills_df<- tibble(job_skills_df) %>%
+  filter(skill != "") %>%
+  filter(nchar(skill) > 1) %>%
+  mutate(skill = str_remove_all(skill, regex("\\d")))
+
+job_skills_df <- job_skills_df %>% 
+  mutate(doc_num = row_number()) %>%
+  relocate(doc_num, .before=job_board) 
+
+```
+
+## c. Import stopwords
+
+In order to build our features array, we decided to 
+```{r}
+
+english_stopwords <- stopwords("en")
+
+job_skills_stopwords = sort(unique(c("abil", "coursework", "spanish", "approach","perspect",
+    "strong","year","work","prior","experi","must", "proven","prefer","understand", "etc", "e",
+    "advanc", "requir", "field", "techniques", "well","flexibl", "knowledg", "realworld", "employe",
+    "fluent","english", "respect","detail","establi","experience", "experi","use", "strong",
+    "g", "travel", "qualiti","maintain","well", "preferred", "hard", "ask", "champion", 
+    "prefer", "quantit", "also", "degree", "learn", "understand", "master", "environ", "general",
+    "skill", "requir", "hands", "field", "techniqu", "includ","tool","use", "think","learn","will",
+    "manag", "solid", "skill","profici","o","understand","arena","thrive","familiar","focus",
+    "willing","work","prioriti", "experti","profici","thrive","enabl","either","can","prior",
+    "relev","study","requir", "minimum","skill","role","similar", "develop", "especi","willing",
+    "signific","perspect","work","flexibl","d","demand","techniques","answering","process","ori",
+    "good","abl","effici","build", "expert","level","interact","bachelor","degre","long",
+    "shortterm", "task","succeed","fastpac","deliver","plus", "department","exercis","experienc",
+    "partner","expertis","thought","leader","phd","new","two","team","major","practic","teamwork",
+    "need","offici","obtain","team","small","thing","years","masters")))
+
+
+job_skills_categories_stopwords = c("ability", "experience", "skills", "knowledge", "working",
+                          "related", "using", "understanding", "including", "advanced", "relevant", 
+                          "proficiency", "excellent", "building", "processes","able","effectively",
+                          "master's", "demonstrated", "non", "concepts","expertise", "familiarity",
+                          "results", "within","applying","others","data", "years", "including","get",
+                          "willingness","machine", "statistical", "arrive","extensive","data science",
+                          "science", "least","languages","large", "open", "work", "techniques", "large",
+                          "solutions","vision","large scale","questions","convert","management",
+                          "focus", "technologies","high","sets","coursework","materials", "one","complex",
+                          "methods","following","production")
+
+```
+
+
+## d. Preprocessing terms
+
+For each document of text, I want to standardize the words and do the following:
+1. remove special characters
+2. remove stop words
+3. lemmonize text
+
+```{r}
+
+
+
+job_skills_clean <- job_skills_df %>%
+  mutate(skill_mod = tolower(skill), 
+         skill_mod = removeWords(skill_mod, english_stopwords),
+         skill_mod = stemDocument(skill_mod, language='english'),
+         skill_mod = removeWords(skill_mod, job_skills_stopwords),
+         skill_mod = str_replace_all(skill_mod, regex("\\d"), "") ,
+         skill_mod = str_replace_all(skill_mod, regex("[[:punct:]]"), ""),
+         skill_mod = str_replace_all(skill_mod, regex("(^\\b|^\\W)"), ""),
+         skill_mod = str_squish(skill_mod),
+         num_words = str_count(skill_mod, "\\w+"))
+
+
+job_skills_clean <- job_skills_clean %>% 
+  filter(num_words != 0) %>%
+  mutate(doc_num = row_number())
+```
+
+
+## e. Get words from skills
+
+```{r}
+
+text_df <- job_skills_clean %>% select(doc_num, skill_mod)
+
+one_word_df <- text_df %>% unnest_tokens(word, skill_mod, token = 'ngrams', n=1)
+two_word_df <- text_df %>% unnest_tokens(word, skill_mod, token = 'ngrams', n=2)
+three_word_df <- text_df %>% unnest_tokens(word, skill_mod, token = 'ngrams', n=3)
+
+
+combined_df <- rbind(one_word_df, two_word_df)
+combined_df <- rbind(combined_df, three_word_df)
+
+
+```
+
+## f. Create features vector based on unique terms
+
+```{r}
+
+combined_df_clean <- combined_df %>%
+  filter(!is.na(word))
+
+skills_df_a <-left_join(combined_df_clean, job_skills_clean) %>% 
+  select(-c("job_board", "position_title", "skill", "skill_mod"))
+
+skills_df_b <- skills_df_a %>% 
+  group_by(doc_num, word) %>% 
+  mutate(n = n()) %>%
+  ungroup() %>%
+  group_by(word) %>%
+  mutate(word_count = n(), 
+         num_docs = n_distinct(doc_num)) %>% 
+  ungroup() %>% 
+  mutate(total_words = n_distinct(word), 
+         total_docs = n_distinct(doc_num))
+
+skills_df_c <- skills_df_b %>% 
+  filter(num_docs >= 10,
+         num_words >= 5) %>%
+  mutate(total_words = n_distinct(word), 
+         total_docs = n_distinct(doc_num))
+
+tf_df <- skills_df_c %>% 
+  mutate(tf = word_count/total_words)
+
+tf_df_mod <- tf_df %>% 
+  distinct(doc_num, word, .keep_all = TRUE)
+
+
+```
+
+
+
+# 4. Create features array for use in clustering model
+
+In this step, we take the words from the previous step and create a features array for the terms. Rather than use tf-idf for our feature values, we will use the overall term frequency as the values for our word features. Additionally, for each document, we will replace the NA values with a -1 value. We use -1 to penalize a document for not having a word in the document. 
+
+```{r}
+
+tf_df_spread <- tf_df_mod %>% 
+  select(c(doc_num, word, tf)) %>% 
+  spread(key=word, value=tf, fill = NA)
+
+
+tf_df_mod_2 <- tf_df_spread %>%
+  group_by(doc_num) %>%
+  fill(colnames(.),.direction="updown") %>%
+  ungroup()
+
+included_docs <- tf_df_mod %>% distinct(doc_num)
+
+
+## Create a data frame of just the word features for each job posting
+features_array <- tf_df_mod_2 %>% 
+  ungroup()
+  
+
+## Replaces NA values with -1
+features_array_mod <- replace(features_array, is.na(features_array),-1)
+
+features_array_clean <- features_array_mod %>%
+  select(-doc_num) 
+
+```
+
+
+# 5. Conduct KMeans Clusterings
+
+Now we use our features array to train our KMeans clustering model in order to identify the clusters for our data 
+
+## a. Train Model
+```{r}
+
+num_groups = 30
+
+## Run KMeans algorithm on the features array
+kmeans_info <- kmeans(features_array_clean,num_groups, nstart = 15)
+
+kmeans_info$withinss
+
+kmeans_info$totss
+
+```
+
+## b. Label job skills data 
+
+Next we take our cluster information and use them to label the original data with the new clusters
+```{r}
+
+job_skills_clean_b <- job_skills_clean %>% filter(doc_num %in% included_docs$doc_num)
+
+job_skills_df_updated <- tibble(cbind(job_skills_clean_b, kmeans_info$cluster))
+job_skills_df_updated <- job_skills_df_updated %>% rename(cluster=`kmeans_info$cluster`)
+job_skills_df_updated <- job_skills_df_updated %>% mutate(cluster = as.character(cluster))
+
+
+job_skills_df_updated %>%
+  mutate(cluster = as.numeric(cluster)) %>%
+  count(cluster) %>%
+  ggplot() +
+  geom_bar(aes(x=-cluster, y=n, fill=n), stat='identity') +
+  coord_flip() +
+  ggtitle("Cluster Size")
+  xlab("Cluster Number") +
+  ylab("")
+```
+
+
+
+# 6. Label Jobs
+
+## a. Generate Labels for the groups
+
+For this we will take the clustered data, and then identify the words that are most common in those documents and use that as the label for the group. In some instances, the label selected is not the best term and could probably benefit from further processing. 
+
+```{r}
+job_skills_labels = c()
+
+for(cluster_num in seq(num_groups)) {
+    
+  
+    cluster_docs <- (job_skills_df_updated %>% 
+      filter(cluster == cluster_num) %>%
+      distinct(doc_num))$doc_num
+  
+  
+    relevant_docs <- job_skills_clean %>% filter(doc_num %in% cluster_docs)
+    
+    one_word_df <- relevant_docs %>% unnest_tokens(word, skill, token = 'ngrams', n=1)
+    two_word_df <- relevant_docs %>% unnest_tokens(word, skill, token = 'ngrams', n=2)
+    three_word_df <- relevant_docs %>% unnest_tokens(word, skill, token = 'ngrams', n=3)
+    
+    combined_words <- rbind(one_word_df, two_word_df)
+    combined_words <- rbind(combined_words, three_word_df)
+    
+    top_words <- combined_words %>% 
+      mutate(word = removeWords(word, english_stopwords),
+             word = str_remove(word, regex("(years)")),
+             word = str_squish(word), ) %>%
+      filter(!word %in% english_stopwords) %>% 
+      filter(!word %in% job_skills_categories_stopwords) %>%
+      filter(!is.na(word)) %>%
+      filter(word != "") %>%
+      count(word, sort=TRUE)
+    
+    top_word <- top_words[[1,1]]
+    job_skills_labels <- c(job_skills_labels, top_word)
+  
+}
+
+cluster_labels <- 
+  tibble(job_skills_labels) %>% 
+  mutate(cluster = as.character(row_number())) %>% 
+  rename(skills_label = job_skills_labels) %>% 
+  relocate(cluster, .before=cluster)
+
+
+cluster_labels %>%
+  kable(
+    caption='Cluster Labels',
+    col.names = c("Label Name", "Cluster")
+  ) %>%
+  kable_material(c("striped",
+                   font_size=8)) %>%
+  kable_styling(fixed_thead = T)
+
+```
+
+
+```{r}
+
+features_array_labeled <- tibble(cbind(features_array_mod, kmeans_info$cluster))
+
+ features_array_labeled <- features_array_labeled %>% 
+  rename(cluster_name=`kmeans_info$cluster`)
+
+features_array_labeled <- features_array_labeled %>% 
+  mutate(cluster_name = as.character(cluster_name)) %>%
+  left_join(cluster_labels, by=c('cluster_name'='cluster'))
+
+
+features_array_upsampled <- tibble(upsample(features_array_labeled, cat_col='skills_label')) %>%
+  relocate(c(skills_label),.after=doc_num)
+
+
+features_array_labeled %>% 
+  select(doc_num, skills_label) %>% 
+  count(skills_label) %>% 
+  ggplot() +
+  geom_bar(aes(x=reorder(skills_label,n), y=n, fill=skills_label), stat='identity') +
+  coord_flip() +
+  ggtitle("Cluster Labels") +
+  xlab("Label") +
+  ylab("n")
+
+
+features_array_labeled %>% 
+  select(doc_num, skills_label) %>% 
+  count(skills_label) %>% 
+  with(wordcloud(skills_label, n, max.words=150))
+```
+
+# 7. Train and Evaluate Classifier
+
+Corpus of skills will be built based on different postings that list the top skills needed for a data scientist. This work can be done semi-manually. The data can be divided into Hard vs. Soft skills, a subdomain area, and then there will be a list of skills that are included. This list will be generated manually and will be stored in a database or a csv file
+
+Methodology:
+1. Shuffle the dataframe
+2. Create training and test set
+3. Apply KNN to training set
+4. Evaluate performance of test set
+5. Generate score
+
+Finally, we will look at the performance of the model to determine how good it was at classifying the type of job description we were looking at. 
+
+For this, we will run 500 different simulations and collect the accuracy score for each run. Then from there, we will evaluate the distribution of accuracy scores to determine the 90% confidence interval for the accuracy of our model and compare this to our target accuracy score of 80%.
+
+```{r}
+seed_num = 5142023
+sample_size = 500
+
+accuracy <- function(x) {
+  sum(diag(x)/sum(rowSums(x)))
+}
+
+
+accuracy_sample = c()
+
+for(i in seq(sample_size)) {
+  
+  set.seed(seed_num + i)  
+  shuffled_features <- features_array_upsampled %>% sample_frac()
+
+  train_size = .70
+  test_size = 1-train_size
+  
+  set.seed(seed_num + i)  
+  rand <- sample(seq(1,nrow(shuffled_features)),size=train_size*nrow(shuffled_features),replace=FALSE)
+  
+  train_data <- shuffled_features %>% slice(rand)
+  test_data <- shuffled_features %>% slice(-rand)
+  
+  X_train <- train_data %>% select(-c(doc_num, skills_label,cluster_name))
+  X_test <- test_data %>% select(-c(doc_num, skills_label, cluster_name))
+  
+  y_train <- train_data %>% select(skills_label)
+  y_test <- test_data %>% select(skills_label)
+  
+  y_train <- y_train %>%
+    mutate(category = as.factor(skills_label))
+  
+  y_test <- y_test %>% 
+    mutate(category = as.factor(skills_label))
+  
+  
+  y_train_labels <- y_train$skills_label
+  y_test_labels <- y_test$skills_label
+  
+  knn_pred1 <- knn(
+    train = X_train,
+    test = X_test,
+    cl = y_train_labels,
+    k = 25
+  )
+
+
+  tab <- table(knn_pred1,y_test_labels)
+  
+  
+  accuracy_sample <- c(accuracy_sample, accuracy(tab))
+    
+}
+
+```
+
+## c. View distribution of sample accuracy scores
+
+```{r}
+
+
+mean(accuracy_sample)
+
+sd(accuracy_sample)
+
+quantile(accuracy_sample)
+
+accuracy_sample <- tibble(accuracy_sample)
+
+ggplot(accuracy_sample) +
+  geom_histogram(aes(x=accuracy_sample), fill='white', color='black') +
+  ggtitle("Distribution of Model Accuracy Scores (n=500)") +
+  xlab("Accuracy Score") +
+  ylab("")
+  
+
+
+
+```
+## c. Hypothesis Test
+
+```{r}
+
+alpha = .90
+
+n <- sample_size
+avg <- mean(accuracy_sample$accuracy_sample)
+std_dev <- sd(accuracy_sample$accuracy_sample)
+
+margin <- qt(1-((1-alpha)/2),df=(n-1))*std_dev/sqrt(n)
+
+lower_interval <- avg - margin
+upper_interval <- avg + margin
+
+print(paste(lower_interval, upper_interval))
+
+```
+
+For this model, there's we are confident that the true accuracy score for the model is between 84.5% and 84.8% at a 90% level of confidence.
+
+# 9. Conclusion
+
+Through this process, we were able to take a corpus of job postings and break them down into individual discrete job skills requirement documents, and then vectorize these skills into a word array, and use this data to generate clusters of related job skills. From there, we were able to generate labels for each of the groupings and then train a model for classifying new job skills requirements. 
+
+Overall, our objective was to build a model that is able to achieve perform this classification with an accuracy rate of above 85%. After running 500 simulations, we discovered that the accuracy of our model was had a confidence interval of LOWER to UPPER at a 90% level of confidence. 
+
+While I was able to effectively go through the steps to build this model, there's a lot more learning that I need in order to better understand how to tune models and adjust the performance. For this model, several issues that arose were related to the following:
+
+- Clusters were not cohesive
+- Did not always agree with the labels for some of the clusters
+- Due to clusters with larger data sizes, needed to oversample the population to ensure training was done on a sample population that was relative to the sample suze
+
